@@ -1,0 +1,19 @@
+{
+  "rewrites": [
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": ".*(Android|iPhone|iPod|IEMobile|BlackBerry|Opera Mini|Mobile).*"
+        }
+      ],
+      "destination": "/filetrace_mobile.html"
+    },
+    {
+      "source": "/",
+      "destination": "/filetrace.html"
+    }
+  ]
+}

@@ -1,0 +1,83 @@
+rules_version = '2';
+// ============================================================
+// FileTrace (STLAFTrace) — Firestore Security Rules
+//
+// Roles (mirrors the app's own model):
+//   role: 'admin'  -> title 'Administrator', full access
+//   role: 'user'   -> title 'Lawyer' or 'Staff'
+//   role: 'pending'-> awaiting admin approval
+// ============================================================
+function isSignedIn() {
+  return request.auth != null;
+}
+function myProfile(database) {
+  return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+}
+function isAdmin(database) {
+  return isSignedIn() && myProfile(database).role == 'admin';
+}
+function isOwnProfile(uid) {
+  return isSignedIn() && request.auth.uid == uid;
+}
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid} {
+      allow read: if isSignedIn();
+      allow create: if (isOwnProfile(uid)
+        && request.resource.data.id == uid
+        && (request.resource.data.role == 'user' || request.resource.data.role == 'pending'))
+        || isAdmin(database);
+      allow update: if (isOwnProfile(uid) || isAdmin(database))
+        && (
+          isAdmin(database)
+          ||
+          (request.resource.data.role == resource.data.role
+            && request.resource.data.title == resource.data.title)
+        );
+      allow delete: if isAdmin(database);
+    }
+    match /rejectedUsers/{uid} {
+      allow read, create, update: if isAdmin(database);
+      allow delete: if isAdmin(database) || isOwnProfile(uid);
+    }
+    match /files/{fileId} {
+      allow read: if isSignedIn();
+      allow create: if isAdmin(database);
+      allow delete: if isAdmin(database);
+
+      allow update: if isSignedIn() && (
+        isAdmin(database)
+
+        || (
+          resource.data.status == 'available'
+          && request.resource.data.status == 'borrowed'
+          && request.resource.data.borrowerEmail == myProfile(database).email
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['status','borrower','borrowerEmail','borrowDate','borrowHistory'])
+        )
+
+        || (
+          resource.data.status == 'borrowed'
+          && request.resource.data.status == 'available'
+          && (
+            resource.data.borrowerEmail == myProfile(database).email
+            || (
+              resource.data.borrowHistory.size() > 0
+              && resource.data.borrowHistory[resource.data.borrowHistory.size()-1].borrowForEmail
+                 == myProfile(database).email
+            )
+          )
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['status','borrower','borrowerEmail','borrowDate','borrowHistory'])
+        )
+
+        || (
+          request.resource.data.status == resource.data.status
+          && resource.data.borrowerEmail == myProfile(database).email
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['borrower','borrowHistory'])
+        )
+      );
+    }
+  }
+}
